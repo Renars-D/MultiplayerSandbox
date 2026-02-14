@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2D Multiplayer Sandbox</title>
+<style>
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: #222;
+  }
+  canvas {
+    display: block;
+    background: #333;
+  }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+  // ---------------- FIREBASE SETUP ----------------
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyBKwfpfzAsg_B9FG7pi9B3XXHU6V3Qk-t8",
+  authDomain: "d-sandbox-afe0f.firebaseapp.com",
+  databaseURL: "https://d-sandbox-afe0f-default-rtdb.firebaseio.com",
+  projectId: "d-sandbox-afe0f",
+  storageBucket: "d-sandbox-afe0f.firebasestorage.app",
+  messagingSenderId: "519011471036",
+  appId: "1:519011471036:web:118b8f570cd868d7a90ab9",
+  measurementId: "G-7JHJWDB3C3"
+};
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // ---------------- GAME SETUP ----------------
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const mainRoom = {x: 0, y: 0, width: 800, height: 600};
+  const mapWidth = 2000;
+  const mapHeight = 2000;
+
+  let camera = {x: 0, y: 0};
+  const speed = 5;
+
+  // ---------------- PLAYER SETUP ----------------
+  const playerName = prompt("Enter your player name:") || "Player";
+  
+  // Unique ID so players don’t overwrite each other
+  const playerId = "player_" + Date.now() + "_" + Math.floor(Math.random()*1000);
+
+  let player = {x: 400, y: 300, width: 30, height: 30};
+
+  const playerRef = db.ref('players/' + playerId);
+
+  // Remove player automatically when they disconnect
+  playerRef.onDisconnect().remove();
+
+  // Extra safety when closing tab
+  window.addEventListener("beforeunload", function() {
+    playerRef.remove();
+  });
+
+  // ---------------- MOVEMENT ----------------
+  const keys = {};
+  window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+  window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+  function updatePlayer() {
+    if(keys['w']) player.y -= speed;
+    if(keys['s']) player.y += speed;
+    if(keys['a']) player.x -= speed;
+    if(keys['d']) player.x += speed;
+
+    // Keep inside map
+    player.x = Math.max(0, Math.min(mapWidth - player.width, player.x));
+    player.y = Math.max(0, Math.min(mapHeight - player.height, player.y));
+
+    // Update Firebase
+    playerRef.set({
+      x: player.x,
+      y: player.y,
+      width: player.width,
+      height: player.height,
+      name: playerName
+    });
+  }
+
+  // ---------------- OTHER PLAYERS ----------------
+  let allPlayers = {};
+  db.ref('players').on('value', snapshot => {
+    allPlayers = snapshot.val() || {};
+  });
+
+  // ---------------- CAMERA ----------------
+  function updateCamera() {
+    const inMainRoom = 
+      player.x + player.width/2 >= mainRoom.x &&
+      player.x + player.width/2 <= mainRoom.x + mainRoom.width &&
+      player.y + player.height/2 >= mainRoom.y &&
+      player.y + player.height/2 <= mainRoom.y + mainRoom.height;
+
+    if(inMainRoom){
+      camera.x = mainRoom.x + mainRoom.width/2 - canvas.width/2;
+      camera.y = mainRoom.y + mainRoom.height/2 - canvas.height/2;
+    } else {
+      camera.x = player.x + player.width/2 - canvas.width/2;
+      camera.y = player.y + player.height/2 - canvas.height/2;
+    }
+
+    camera.x = Math.max(0, Math.min(mapWidth - canvas.width, camera.x));
+    camera.y = Math.max(0, Math.min(mapHeight - canvas.height, camera.y));
+  }
+
+  // ---------------- DRAW ----------------
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw map background
+    ctx.fillStyle = '#444';
+    ctx.fillRect(-camera.x, -camera.y, mapWidth, mapHeight);
+
+    // Draw main room
+    ctx.fillStyle = '#555';
+    ctx.fillRect(mainRoom.x - camera.x, mainRoom.y - camera.y, mainRoom.width, mainRoom.height);
+
+    // Draw all players
+    for(let id in allPlayers){
+      const p = allPlayers[id];
+      if(!p) continue;
+
+      ctx.fillStyle = id === playerId ? 'blue' : 'red';
+      ctx.fillRect(p.x - camera.x, p.y - camera.y, p.width, p.height);
+
+      ctx.fillStyle = '#fff';
+      ctx.font = "14px Arial";
+      ctx.fillText(p.name || "Player", p.x - camera.x, p.y - camera.y - 5);
+    }
+  }
+
+  // ---------------- GAME LOOP ----------------
+  function gameLoop(){
+    updatePlayer();
+    updateCamera();
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  gameLoop();
+</script>
+</body>
+</html>
